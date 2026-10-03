@@ -790,7 +790,7 @@ async function renderMovie(id, token) {
 
   const cert = certification(m);
   $("#detailMeta").innerHTML = [
-    m.vote_average ? `<span class="score">★ ${m.vote_average.toFixed(1)}</span> (${m.vote_count.toLocaleString()})` : "",
+    m.vote_average ? `<span class="score">★ ${m.vote_average.toFixed(1)}</span> (${(m.vote_count || 0).toLocaleString()})` : "",
     yearOf(m.release_date),
     formatRuntime(m.runtime),
     cert ? `<span class="cert">${escapeHTML(cert)}</span>` : "",
@@ -834,19 +834,24 @@ async function renderMovie(id, token) {
   renderList($("#rowSimilar"), similar);
 }
 
+// TMDB's "free" (no ads) and "ads" (free with ads, e.g. Tubi/Pluto TV/Freevee)
+// categories are both genuinely free to watch — listed first and badged.
 function renderProviders(m) {
   const region = m["watch/providers"]?.results?.[REGION] ? REGION : "US";
   const p = m["watch/providers"]?.results?.[region];
-  const groups = [["flatrate", "Stream"], ["rent", "Rent"], ["buy", "Buy"]];
-  const items = p ? groups.flatMap(([key, label]) => (p[key] || []).map((x) => ({ ...x, label }))) : [];
+  const groups = [
+    ["free", "Free", true], ["ads", "Free with ads", true],
+    ["flatrate", "Stream", false], ["rent", "Rent", false], ["buy", "Buy", false],
+  ];
+  const items = p ? groups.flatMap(([key, label, free]) => (p[key] || []).map((x) => ({ ...x, label, free }))) : [];
   const seen = new Set();
   const unique = items.filter((x) => !seen.has(x.provider_id) && seen.add(x.provider_id));
   $("#providers").hidden = unique.length === 0;
   $("#providerRegion").textContent = `(${region})`;
   $("#providerList").innerHTML = unique.slice(0, 8).map((x) => `
-    <a class="provider" ${p.link ? `href="${escapeHTML(p.link)}" target="_blank" rel="noopener"` : ""} title="${escapeHTML(x.provider_name)}">
+    <a class="provider ${x.free ? "provider-free" : ""}" ${p.link ? `href="${escapeHTML(p.link)}" target="_blank" rel="noopener"` : ""} title="${escapeHTML(x.provider_name)}">
       <img src="${IMG}w92${x.logo_path}" alt="" loading="lazy">
-      <span>${escapeHTML(x.provider_name)}<small>${x.label}</small></span>
+      <span>${escapeHTML(x.provider_name)}<small>${x.free ? "🆓 " : ""}${x.label}</small></span>
     </a>`).join("");
 }
 

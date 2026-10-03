@@ -327,6 +327,8 @@ select {
 }
 .provider img { width: 36px; height: 36px; border-radius: 8px; }
 .provider small { color: var(--muted); display: block; font-size: 0.7rem; }
+.provider-free { border-color: #22c55e; }
+.provider-free small { color: #22c55e; font-weight: 700; }
 .providers p { margin: 8px 0 0; }
 
 .user-rating h3 { margin: 0 0 8px; }
