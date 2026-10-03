@@ -3,8 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="FlowingDaFilms — discover, search and save your favorite movies." />
+  <meta name="description" content="FlowingDaFilms — discover trending movies, trailers, cast and where to watch." />
   <title>FlowingDaFilms</title>
+  <link rel="preconnect" href="https://api.themoviedb.org" />
+  <link rel="preconnect" href="https://image.tmdb.org" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -22,10 +24,11 @@
 
       <div class="header-actions">
         <form class="search" id="searchForm" role="search">
-          <input type="search" id="searchInput" placeholder="Search movies, actors…" aria-label="Search movies" autocomplete="off" />
+          <input type="search" id="searchInput" placeholder="Search movies, people…" aria-label="Search movies and people" autocomplete="off" />
           <ul class="search-suggestions" id="searchSuggestions" hidden></ul>
         </form>
         <button class="icon-btn" id="themeToggle" aria-label="Toggle light/dark theme" title="Toggle theme">◐</button>
+        <a class="icon-btn" href="#/settings" aria-label="Settings" title="Settings">⚙</a>
         <button class="icon-btn menu-btn" id="menuToggle" aria-label="Open menu" aria-expanded="false">☰</button>
       </div>
     </div>
@@ -33,12 +36,12 @@
 
   <main id="app">
     <!-- HOME -->
-    <section class="view" id="view-home">
+    <section class="view" id="view-home" hidden>
       <div class="hero" id="hero">
         <div class="hero-bg" id="heroBg"></div>
         <div class="container hero-content">
-          <span class="hero-tag">Featured</span>
-          <h1 id="heroTitle"></h1>
+          <span class="hero-tag">Trending this week</span>
+          <h1 id="heroTitle">&nbsp;</h1>
           <p class="hero-meta" id="heroMeta"></p>
           <p class="hero-desc" id="heroDesc"></p>
           <div class="hero-actions">
@@ -49,19 +52,7 @@
         </div>
       </div>
 
-      <div class="container">
-        <section class="row">
-          <div class="row-head"><h2>Trending Now</h2><a href="#/browse" class="link">See all →</a></div>
-          <div class="carousel" id="rowTrending"></div>
-        </section>
-        <section class="row">
-          <div class="row-head"><h2>Top Rated</h2><a href="#/browse?sort=rating" class="link">See all →</a></div>
-          <div class="carousel" id="rowTopRated"></div>
-        </section>
-        <section class="row">
-          <div class="row-head"><h2>New Releases</h2><a href="#/browse?sort=year" class="link">See all →</a></div>
-          <div class="carousel" id="rowNew"></div>
-        </section>
+      <div class="container" id="homeRows">
         <section class="row" id="recentRow" hidden>
           <div class="row-head"><h2>Recently Viewed</h2><button class="link" id="clearRecent">Clear</button></div>
           <div class="carousel" id="rowRecent"></div>
@@ -75,33 +66,34 @@
         <h1 id="browseTitle">Browse Movies</h1>
         <p class="muted" id="resultCount"></p>
       </div>
-      <div class="filters">
+      <div class="filters" id="browseFilters">
         <div class="chips" id="genreChips"></div>
         <div class="filter-controls">
-          <label>Year
+          <label>Decade
             <select id="yearFilter"><option value="all">All years</option></select>
           </label>
           <label>Min rating
             <select id="ratingFilter">
               <option value="0">Any</option>
+              <option value="6">6+</option>
               <option value="7">7+</option>
               <option value="8">8+</option>
-              <option value="8.5">8.5+</option>
             </select>
           </label>
           <label>Sort by
             <select id="sortSelect">
-              <option value="popularity">Popularity</option>
-              <option value="rating">Rating</option>
-              <option value="year">Newest</option>
-              <option value="title">Title A–Z</option>
+              <option value="popularity.desc">Popularity</option>
+              <option value="vote_average.desc">Rating</option>
+              <option value="primary_release_date.desc">Newest</option>
+              <option value="revenue.desc">Box office</option>
+              <option value="original_title.asc">Title A–Z</option>
             </select>
           </label>
         </div>
       </div>
       <div class="grid" id="movieGrid"></div>
       <div class="empty" id="browseEmpty" hidden>
-        <p>No movies match your filters.</p>
+        <p>No movies match your search or filters.</p>
         <button class="btn btn-ghost" id="resetFilters">Reset filters</button>
       </div>
       <div class="load-more-wrap"><button class="btn btn-ghost" id="loadMore" hidden>Load more</button></div>
@@ -114,7 +106,7 @@
         <p class="muted" id="watchlistSummary"></p>
       </div>
       <div class="tabs" id="watchTabs">
-        <button class="tab active" data-tab="toWatch">To Watch</button>
+        <button class="tab active" data-tab="watchlist">To Watch</button>
         <button class="tab" data-tab="watched">Watched</button>
       </div>
       <div class="grid" id="watchlistGrid"></div>
@@ -130,59 +122,129 @@
       <div class="container detail">
         <div class="detail-poster" id="detailPoster"></div>
         <div class="detail-info">
-          <a href="#/browse" class="link back-link" id="backLink">← Back</a>
+          <button class="link back-link" data-back>← Back</button>
           <h1 id="detailTitle"></h1>
+          <p class="tagline" id="detailTagline"></p>
           <p class="detail-meta" id="detailMeta"></p>
           <div class="detail-genres" id="detailGenres"></div>
           <p class="detail-overview" id="detailOverview"></p>
           <dl class="detail-facts" id="detailFacts"></dl>
           <div class="detail-actions">
-            <button class="btn btn-primary" id="trailerBtn">▶ Watch Trailer</button>
+            <button class="btn btn-primary" id="trailerBtn">▶ Play Trailer</button>
             <button class="btn btn-ghost" id="detailWatchlist"></button>
             <button class="btn btn-ghost" id="detailWatched"></button>
             <button class="btn btn-ghost" id="shareBtn">Share</button>
           </div>
 
+          <section class="providers" id="providers" hidden>
+            <h3>Where to watch <span class="muted" id="providerRegion"></span></h3>
+            <div class="provider-list" id="providerList"></div>
+            <p class="muted small">Streaming data by JustWatch.</p>
+          </section>
+
           <div class="user-rating">
             <h3>Your rating</h3>
             <div class="stars" id="userStars" role="radiogroup" aria-label="Rate this movie"></div>
           </div>
-
-          <section class="reviews">
-            <h3>Reviews <span class="muted" id="reviewCount"></span></h3>
-            <form id="reviewForm" class="review-form">
-              <input type="text" id="reviewName" placeholder="Your name" maxlength="40" required />
-              <textarea id="reviewText" placeholder="What did you think?" rows="3" maxlength="600" required></textarea>
-              <button class="btn btn-primary" type="submit">Post review</button>
-            </form>
-            <ul class="review-list" id="reviewList"></ul>
-          </section>
         </div>
       </div>
+
       <div class="container">
-        <section class="row">
+        <section class="row" id="castRow">
+          <div class="row-head"><h2>Top Cast</h2></div>
+          <div class="carousel cast-carousel" id="castList"></div>
+        </section>
+
+        <section class="reviews">
+          <h2>Reviews <span class="muted" id="reviewCount"></span></h2>
+          <form id="reviewForm" class="review-form">
+            <input type="text" id="reviewName" placeholder="Your name" maxlength="40" required />
+            <textarea id="reviewText" placeholder="What did you think?" rows="3" maxlength="600" required></textarea>
+            <button class="btn btn-primary" type="submit">Post review</button>
+          </form>
+          <ul class="review-list" id="reviewList"></ul>
+        </section>
+
+        <section class="row" id="similarRow">
           <div class="row-head"><h2>More Like This</h2></div>
           <div class="carousel" id="rowSimilar"></div>
         </section>
       </div>
     </section>
 
-    <!-- 404 -->
-    <section class="view container" id="view-notfound" hidden>
-      <div class="empty">
-        <h1>404</h1>
-        <p>That page or movie doesn't exist.</p>
-        <a href="#/" class="btn btn-primary">Go home</a>
+    <!-- PERSON -->
+    <section class="view container" id="view-person" hidden>
+      <div class="person">
+        <div class="person-photo" id="personPhoto"></div>
+        <div class="person-info">
+          <button class="link back-link" data-back>← Back</button>
+          <h1 id="personName"></h1>
+          <p class="detail-meta" id="personMeta"></p>
+          <p class="person-bio" id="personBio"></p>
+          <button class="link" id="bioToggle" hidden>Read more</button>
+        </div>
+      </div>
+      <section class="row">
+        <div class="row-head"><h2>Known For</h2></div>
+        <div class="grid" id="personMovies"></div>
+      </section>
+    </section>
+
+    <!-- SETTINGS / API KEY -->
+    <section class="view container" id="view-settings" hidden>
+      <div class="setup">
+        <h1>Connect to TMDB</h1>
+        <p>FlowingDaFilms gets its movie data from <a class="link" href="https://www.themoviedb.org/" target="_blank" rel="noopener">The Movie Database (TMDB)</a>. It needs a free TMDB API key to load movies.</p>
+        <ol class="setup-steps">
+          <li>Create a free account at <a class="link" href="https://www.themoviedb.org/signup" target="_blank" rel="noopener">themoviedb.org</a>.</li>
+          <li>Go to <a class="link" href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">Settings → API</a> and request an API key (choose "Developer").</li>
+          <li>Copy the <strong>API Key</strong> or the <strong>API Read Access Token</strong> and paste it below.</li>
+        </ol>
+        <form id="keyForm" class="key-form">
+          <input type="password" id="keyInput" placeholder="Paste your TMDB API key or read access token" autocomplete="off" spellcheck="false" required />
+          <button class="btn btn-primary" type="submit" id="keySave">Save &amp; connect</button>
+        </form>
+        <p class="key-status" id="keyStatus" role="status"></p>
+        <p class="muted small" id="keySource"></p>
+        <button class="btn btn-ghost" id="keyClear" hidden>Remove saved key</button>
+        <p class="muted small">A key saved here is stored only in this browser. To give every visitor real data, set <code>TMDB_API_KEY</code> at the top of <code>script.js</code> instead.</p>
       </div>
     </section>
+
+    <!-- ERROR / 404 -->
+    <section class="view container" id="view-error" hidden>
+      <div class="empty">
+        <h1 id="errorTitle">404</h1>
+        <p id="errorText">That page doesn't exist.</p>
+        <div class="hero-actions center">
+          <button class="btn btn-primary" id="errorRetry" hidden>Try again</button>
+          <a href="#/" class="btn btn-ghost">Go home</a>
+        </div>
+      </div>
+    </section>
+
+    <div class="page-loader" id="pageLoader" hidden><span class="spinner"></span></div>
   </main>
+
+  <!-- Trailer modal -->
+  <div class="modal" id="trailerModal" hidden>
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="trailerTitle">
+      <button class="icon-btn modal-close" data-close aria-label="Close">✕</button>
+      <h2 id="trailerTitle"></h2>
+      <div class="video-wrap" id="trailerFrame"></div>
+    </div>
+  </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <footer class="site-footer">
     <div class="container footer-inner">
       <p>© <span id="year"></span> FlowingDaFilms. Built with HTML, CSS &amp; JavaScript.</p>
-      <p class="muted">Your watchlist, ratings and reviews are saved in this browser.</p>
+      <p class="muted tmdb-credit">
+        <a href="https://www.themoviedb.org/" target="_blank" rel="noopener" class="tmdb-logo">TMDB</a>
+        This product uses the TMDB API but is not endorsed or certified by TMDB.
+      </p>
     </div>
   </footer>
 
