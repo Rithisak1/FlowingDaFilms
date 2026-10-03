@@ -27,6 +27,7 @@
           <input type="search" id="searchInput" placeholder="Search movies, people…" aria-label="Search movies and people" autocomplete="off" />
           <ul class="search-suggestions" id="searchSuggestions" hidden></ul>
         </form>
+        <a class="icon-btn profile-badge" id="profileBadge" href="#/profiles" aria-label="Switch profile" title="Switch profile">🍿</a>
         <button class="icon-btn" id="themeToggle" aria-label="Toggle light/dark theme" title="Toggle theme">◐</button>
         <a class="icon-btn" href="#/settings" aria-label="Settings" title="Settings">⚙</a>
         <button class="icon-btn menu-btn" id="menuToggle" aria-label="Open menu" aria-expanded="false">☰</button>
@@ -53,6 +54,18 @@
       </div>
 
       <div class="container" id="homeRows">
+        <section class="row" id="top10Row">
+          <div class="row-head"><h2>Top 10 Movies Today</h2></div>
+          <div class="carousel top10-carousel" id="rowTop10"></div>
+        </section>
+        <section class="row" id="myListRow" hidden>
+          <div class="row-head"><h2>My List</h2></div>
+          <div class="carousel" id="rowMyList"></div>
+        </section>
+        <section class="row" id="becauseRow" hidden>
+          <div class="row-head"><h2 id="becauseTitle">Because you watched…</h2></div>
+          <div class="carousel" id="rowBecause"></div>
+        </section>
         <section class="row" id="recentRow" hidden>
           <div class="row-head"><h2>Recently Viewed</h2><button class="link" id="clearRecent">Clear</button></div>
           <div class="carousel" id="rowRecent"></div>
@@ -188,6 +201,22 @@
         <div class="row-head"><h2>Known For</h2></div>
         <div class="grid" id="personMovies"></div>
       </section>
+    </section>
+
+    <!-- PROFILES -->
+    <section class="view container" id="view-profiles" hidden>
+      <div class="profiles-screen">
+        <h1>Who's watching?</h1>
+        <div class="profile-grid" id="profileGrid"></div>
+        <form class="profile-form" id="profileForm" hidden>
+          <input type="text" id="profileName" placeholder="Profile name" maxlength="20" required autocomplete="off" />
+          <div class="emoji-picker" id="emojiPicker"></div>
+          <div class="profile-form-actions">
+            <button type="submit" class="btn btn-primary">Create profile</button>
+            <button type="button" class="btn btn-ghost" id="profileCancel">Cancel</button>
+          </div>
+        </form>
+      </div>
     </section>
 
     <!-- SETTINGS / API KEY -->

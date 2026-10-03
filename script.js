@@ -20,18 +20,59 @@ const TMDB_BASE = "https://api.themoviedb.org/3";
 const IMG = "https://image.tmdb.org/t/p/";
 const LANG = navigator.language || "en-US";
 const REGION = (LANG.split("-")[1] || "US").toUpperCase();
-const STORAGE_KEY = "flowingdafilms:v2";
+const HOVER_CAPABLE = matchMedia("(hover: hover) and (pointer: fine)").matches;
 const CACHE_TTL = 5 * 60 * 1000;
+
+const AVATARS = [
+  { emoji: "🍿", color: "#8a1114" },
+  { emoji: "🎬", color: "#1d4ed8" },
+  { emoji: "👾", color: "#6d28d9" },
+  { emoji: "🦄", color: "#be185d" },
+  { emoji: "🐙", color: "#0e7490" },
+  { emoji: "🚀", color: "#c2410c" },
+  { emoji: "🎮", color: "#15803d" },
+  { emoji: "🐸", color: "#4d7c0f" },
+  { emoji: "🍕", color: "#a16207" },
+  { emoji: "⭐", color: "#4338ca" },
+];
+const emptyProfileData = () => ({ watchlist: [], watched: [], ratings: {}, reviews: {}, recent: [] });
 
 /* =========================================================
    Persistent state (localStorage, fail-safe)
+   ---------------------------------------------------------
+   Each local "profile" (like Netflix's Who's Watching) keeps
+   its own watchlist/ratings/reviews under state.data[id].
+   Theme and API key are shared across all profiles.
    ========================================================= */
+const OLD_STORAGE_KEY = "flowingdafilms:v2";
+const STORAGE_KEY = "flowingdafilms:v3";
+
 const store = (() => {
-  const defaults = { watchlist: [], watched: [], ratings: {}, reviews: {}, recent: [], theme: null, apiKey: "" };
+  const defaults = { theme: null, apiKey: "", profiles: [], activeProfileId: null, data: {} };
   let data = { ...defaults };
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (saved && typeof saved === "object") data = { ...defaults, ...saved };
+    if (saved && typeof saved === "object") {
+      data = { ...defaults, ...saved, data: { ...saved.data } };
+    } else {
+      // A visitor from before profiles existed: keep their data as "Profile 1"
+      const old = JSON.parse(localStorage.getItem(OLD_STORAGE_KEY));
+      if (old && typeof old === "object") {
+        const id = "p1";
+        data.theme = old.theme ?? null;
+        data.apiKey = old.apiKey || "";
+        data.profiles = [{ id, name: "Profile 1", emoji: AVATARS[0].emoji, color: AVATARS[0].color }];
+        data.activeProfileId = id;
+        data.data[id] = {
+          watchlist: old.watchlist || [],
+          watched: old.watched || [],
+          ratings: old.ratings || {},
+          reviews: old.reviews || {},
+          recent: old.recent || [],
+        };
+        try { localStorage.removeItem(OLD_STORAGE_KEY); } catch { /* ignore */ }
+      }
+    }
   } catch { /* storage unavailable or corrupt: use defaults */ }
   const save = () => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch { /* ignore */ }
@@ -39,6 +80,11 @@ const store = (() => {
   return { data, save };
 })();
 const state = store.data;
+
+function activeProfileData() {
+  if (!state.activeProfileId) return null;
+  return (state.data[state.activeProfileId] ||= emptyProfileData());
+}
 
 /* =========================================================
    Helpers
@@ -120,10 +166,11 @@ function describeError(err) {
 /* =========================================================
    Images & cards
    ========================================================= */
-const movieCache = new Map(); // id -> snapshot used for watchlist / recents
+const movieCache = new Map(); // id -> snapshot used for watchlist / recents / previews
 
 function snap(m) {
-  const s = { id: m.id, title: m.title, poster_path: m.poster_path || null, release_date: m.release_date || "", vote_average: m.vote_average || 0 };
+  const genre_ids = m.genre_ids || (m.genres ? m.genres.map((g) => g.id) : []);
+  const s = { id: m.id, title: m.title, poster_path: m.poster_path || null, release_date: m.release_date || "", vote_average: m.vote_average || 0, genre_ids };
   movieCache.set(s.id, s);
   return s;
 }
@@ -134,20 +181,26 @@ function posterHTML(path, title, size = "w342") {
     : `<div class="poster-fallback">${escapeHTML(title)}</div>`;
 }
 
-const inList = (list, id) => state[list].some((m) => m.id === id);
+const inList = (list, id) => {
+  const p = activeProfileData();
+  return p ? p[list].some((m) => m.id === id) : false;
+};
 
-function cardHTML(m) {
+function cardHTML(m, rank) {
   const s = snap(m);
   const saved = inList("watchlist", s.id);
   return `
-    <article class="card" tabindex="0" data-id="${s.id}" aria-label="${escapeHTML(s.title)} (${yearOf(s.release_date)})">
-      ${s.vote_average ? `<span class="card-rating">★ ${s.vote_average.toFixed(1)}</span>` : ""}
-      <button class="card-save ${saved ? "saved" : ""}" data-id="${s.id}"
-        aria-label="${saved ? "Remove from watchlist" : "Add to watchlist"}">${saved ? "✓" : "+"}</button>
-      <div class="poster">${posterHTML(s.poster_path, s.title)}</div>
-      <div class="card-info">
-        <h3>${escapeHTML(s.title)}</h3>
-        <p>${yearOf(s.release_date)}</p>
+    <article class="card ${rank ? "top10-card" : ""}" tabindex="0" data-id="${s.id}" aria-label="${escapeHTML(s.title)} (${yearOf(s.release_date)})">
+      ${rank ? `<span class="top10-rank">${rank}</span>` : ""}
+      <div class="card-body">
+        ${s.vote_average ? `<span class="card-rating">★ ${s.vote_average.toFixed(1)}</span>` : ""}
+        <button class="card-save ${saved ? "saved" : ""}" data-id="${s.id}"
+          aria-label="${saved ? "Remove from watchlist" : "Add to watchlist"}">${saved ? "✓" : "+"}</button>
+        <div class="poster">${posterHTML(s.poster_path, s.title)}</div>
+        <div class="card-info">
+          <h3>${escapeHTML(s.title)}</h3>
+          <p>${yearOf(s.release_date)}</p>
+        </div>
       </div>
     </article>`;
 }
@@ -155,23 +208,142 @@ function cardHTML(m) {
 const skeletonCards = (n) =>
   Array.from({ length: n }, () => `<div class="card skeleton"><div class="poster"></div><div class="skeleton-line"></div><div class="skeleton-line short"></div></div>`).join("");
 
+function refreshCarouselEdges(el) {
+  const wrap = el.closest?.(".carousel-wrap");
+  if (!wrap) return;
+  const prev = wrap.querySelector(".car-arrow.prev");
+  const next = wrap.querySelector(".car-arrow.next");
+  if (!prev || !next) return;
+  prev.classList.toggle("at-edge", el.scrollLeft <= 4);
+  next.classList.toggle("at-edge", el.scrollLeft + el.clientWidth >= el.scrollWidth - 4);
+}
+
 function renderList(container, movies, append = false) {
-  const html = movies.map(cardHTML).join("");
+  const html = movies.map((m) => cardHTML(m)).join("");
   if (append) container.insertAdjacentHTML("beforeend", html);
   else container.innerHTML = html;
+  refreshCarouselEdges(container);
 }
+
+function renderRankedList(container, movies) {
+  container.innerHTML = movies.map((m, i) => cardHTML(m, i + 1)).join("");
+  refreshCarouselEdges(container);
+}
+
+/* =========================================================
+   Carousel left/right arrows
+   ========================================================= */
+function wrapCarousel(id) {
+  const el = document.getElementById(id);
+  if (!el || el.parentElement.classList.contains("carousel-wrap")) return;
+  const wrap = document.createElement("div");
+  wrap.className = "carousel-wrap";
+  el.parentNode.insertBefore(wrap, el);
+  wrap.appendChild(el);
+
+  const prev = document.createElement("button");
+  prev.className = "car-arrow prev";
+  prev.type = "button";
+  prev.setAttribute("aria-label", "Scroll left");
+  prev.innerHTML = "&lsaquo;";
+  const next = document.createElement("button");
+  next.className = "car-arrow next";
+  next.type = "button";
+  next.setAttribute("aria-label", "Scroll right");
+  next.innerHTML = "&rsaquo;";
+  wrap.append(prev, next);
+
+  const scrollDir = (dir) => el.scrollBy({ left: dir * el.clientWidth * 0.85, behavior: "smooth" });
+  prev.addEventListener("click", () => scrollDir(-1));
+  next.addEventListener("click", () => scrollDir(1));
+  const update = () => refreshCarouselEdges(el);
+  el.addEventListener("scroll", update, { passive: true });
+  if (window.ResizeObserver) new ResizeObserver(update).observe(el);
+  update();
+}
+
+/* =========================================================
+   Hover preview (desktop/mouse only — autoplaying trailer
+   clips on every card tap would waste mobile data)
+   ========================================================= */
+const videoCache = new Map(); // movieId -> YouTube key | null
+const previewTimers = new WeakMap();
+
+async function getTrailerKey(id) {
+  if (videoCache.has(id)) return videoCache.get(id);
+  try {
+    const data = await tmdb(`/movie/${id}/videos`);
+    const yt = data.results.filter((v) => v.site === "YouTube");
+    const v = yt.find((v) => v.type === "Trailer" && v.official) || yt.find((v) => v.type === "Trailer") || yt.find((v) => v.type === "Teaser") || null;
+    const key = v ? v.key : null;
+    videoCache.set(id, key);
+    return key;
+  } catch {
+    videoCache.set(id, null);
+    return null;
+  }
+}
+
+function startPreview(card) {
+  if (!HOVER_CAPABLE) return;
+  clearTimeout(previewTimers.get(card));
+  const timer = setTimeout(async () => {
+    if (!document.body.contains(card) || !card.matches(":hover")) return;
+    const id = Number(card.dataset.id);
+    const s = movieCache.get(id);
+    const poster = card.querySelector(".poster");
+    if (!s || !poster) return;
+
+    card.classList.add("previewing");
+    const info = document.createElement("div");
+    info.className = "card-preview-info";
+    info.innerHTML = `<strong>${escapeHTML(s.title)}</strong><small>${s.vote_average ? "★ " + s.vote_average.toFixed(1) + " · " : ""}${yearOf(s.release_date)}</small>`;
+    poster.appendChild(info);
+
+    const key = await getTrailerKey(id);
+    if (!card.classList.contains("previewing")) return; // hover ended before the trailer resolved
+    if (key) {
+      const videoEl = document.createElement("div");
+      videoEl.className = "card-video";
+      videoEl.innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(key)}?autoplay=1&mute=1&controls=0&modestbranding=1&playsinline=1&loop=1&playlist=${encodeURIComponent(key)}&rel=0&iv_load_policy=3" allow="autoplay; encrypted-media" title=""></iframe>`;
+      poster.insertBefore(videoEl, poster.firstChild);
+      requestAnimationFrame(() => videoEl.classList.add("loaded"));
+    }
+  }, 500);
+  previewTimers.set(card, timer);
+}
+
+function endPreview(card) {
+  clearTimeout(previewTimers.get(card));
+  card.classList.remove("previewing");
+  const poster = card.querySelector(".poster");
+  poster?.querySelector(".card-video")?.remove();
+  poster?.querySelector(".card-preview-info")?.remove();
+}
+
+document.addEventListener("mouseover", (e) => {
+  const card = e.target.closest(".card[data-id]");
+  if (!card || card.contains(e.relatedTarget)) return;
+  startPreview(card);
+});
+document.addEventListener("mouseout", (e) => {
+  const card = e.target.closest(".card[data-id]");
+  if (!card || card.contains(e.relatedTarget)) return;
+  endPreview(card);
+});
 
 /* =========================================================
    Watchlist / watched
    ========================================================= */
 function toggleWatchlist(id) {
+  const p = activeProfileData();
   const s = movieCache.get(id);
-  if (!s) return;
+  if (!p || !s) return;
   if (inList("watchlist", id)) {
-    state.watchlist = state.watchlist.filter((m) => m.id !== id);
+    p.watchlist = p.watchlist.filter((m) => m.id !== id);
     toast(`Removed "${s.title}" from watchlist`);
   } else {
-    state.watchlist.unshift(s);
+    p.watchlist.unshift(s);
     toast(`Added "${s.title}" to watchlist`);
   }
   store.save();
@@ -179,14 +351,15 @@ function toggleWatchlist(id) {
 }
 
 function toggleWatched(id) {
+  const p = activeProfileData();
   const s = movieCache.get(id);
-  if (!s) return;
+  if (!p || !s) return;
   if (inList("watched", id)) {
-    state.watched = state.watched.filter((m) => m.id !== id);
+    p.watched = p.watched.filter((m) => m.id !== id);
     toast(`Marked "${s.title}" as not watched`);
   } else {
-    state.watched.unshift(s);
-    state.watchlist = state.watchlist.filter((m) => m.id !== id);
+    p.watched.unshift(s);
+    p.watchlist = p.watchlist.filter((m) => m.id !== id);
     toast(`Marked "${s.title}" as watched`);
   }
   store.save();
@@ -194,7 +367,7 @@ function toggleWatched(id) {
 }
 
 function refreshSavedIndicators() {
-  $("#watchlistCount").textContent = state.watchlist.length;
+  $("#watchlistCount").textContent = activeProfileData()?.watchlist.length || 0;
   $$(".card-save").forEach((btn) => {
     const saved = inList("watchlist", Number(btn.dataset.id));
     btn.classList.toggle("saved", saved);
@@ -203,7 +376,7 @@ function refreshSavedIndicators() {
   });
   if (currentRoute.name === "movie") updateDetailButtons(currentRoute.id);
   if (currentRoute.name === "watchlist") renderWatchlist();
-  if (currentRoute.name === "home") updateHeroButton();
+  if (currentRoute.name === "home") { updateHeroButton(); renderMyListRow(); }
 }
 
 // One delegated handler for every card on the page
@@ -254,6 +427,7 @@ function initHomeRows() {
       <div class="row-head"><h2>${r.title}</h2>${r.link ? `<a href="${r.link}" class="link">See all →</a>` : ""}</div>
       <div class="carousel" id="${r.id}"></div>
     </section>`).join(""));
+  HOME_ROWS.forEach((r) => wrapCarousel(r.id));
 }
 
 function showHero(i) {
@@ -289,13 +463,44 @@ function initHero() {
   $("#heroWatchlist").addEventListener("click", () => heroMovies[heroIndex] && toggleWatchlist(heroMovies[heroIndex].id));
 }
 
+function renderMyListRow() {
+  const movies = activeProfileData()?.watchlist || [];
+  $("#myListRow").hidden = movies.length === 0;
+  renderList($("#rowMyList"), movies);
+}
+
+async function renderBecauseRow(token) {
+  const p = activeProfileData();
+  const seed = [...(p?.watchlist || []), ...(p?.watched || [])][0];
+  if (!seed || !seed.genre_ids?.length) { $("#becauseRow").hidden = true; return; }
+  try {
+    const list = await loadGenres();
+    if (token !== routeToken) return;
+    const genre = list.find((g) => g.id === seed.genre_ids[0]);
+    if (!genre) { $("#becauseRow").hidden = true; return; }
+    $("#becauseTitle").textContent = `Because you watched ${seed.title}`;
+    $("#becauseRow").hidden = false;
+    $("#rowBecause").innerHTML = skeletonCards(8);
+    const data = await tmdb("/discover/movie", { with_genres: genre.id, sort_by: "popularity.desc", "vote_count.gte": 100 });
+    if (token !== routeToken) return;
+    const excluded = new Set([...p.watchlist, ...p.watched].map((m) => m.id));
+    renderList($("#rowBecause"), data.results.filter((m) => !excluded.has(m.id)).slice(0, 16));
+  } catch {
+    if (token === routeToken) $("#becauseRow").hidden = true;
+  }
+}
+
 async function renderHome(token) {
-  const recent = state.recent;
+  const recent = activeProfileData()?.recent || [];
   $("#recentRow").hidden = recent.length === 0;
   recent.forEach((m) => movieCache.set(m.id, m));
   renderList($("#rowRecent"), recent);
 
+  renderMyListRow();
+  renderBecauseRow(token); // runs independently; doesn't block the main rows below
+
   HOME_ROWS.forEach((r) => { if (!$(`#${r.id}`).children.length) $(`#${r.id}`).innerHTML = skeletonCards(8); });
+  if (!$("#rowTop10").children.length) $("#rowTop10").innerHTML = skeletonCards(6);
 
   const results = await Promise.allSettled(HOME_ROWS.map((r) => tmdb(r.path, r.params)));
   if (token !== routeToken) return;
@@ -311,7 +516,10 @@ async function renderHome(token) {
   });
 
   if (results[0].status === "fulfilled") {
-    heroMovies = results[0].value.results.filter((m) => m.backdrop_path && m.overview).slice(0, 6);
+    const trending = results[0].value.results;
+    renderRankedList($("#rowTop10"), trending.slice(0, 10));
+
+    heroMovies = trending.filter((m) => m.backdrop_path && m.overview).slice(0, 6);
     $("#heroDots").innerHTML = heroMovies.map((m, i) => `<button aria-label="Show ${escapeHTML(m.title)}" data-i="${i}"></button>`).join("");
     heroMovies.forEach(snap);
     showHero(0);
@@ -320,7 +528,9 @@ async function renderHome(token) {
 }
 
 $("#clearRecent").addEventListener("click", () => {
-  state.recent = [];
+  const p = activeProfileData();
+  if (!p) return;
+  p.recent = [];
   store.save();
   $("#recentRow").hidden = true;
 });
@@ -566,8 +776,11 @@ async function renderMovie(id, token) {
   currentMovie = m;
   const s = snap(m);
 
-  state.recent = [s, ...state.recent.filter((x) => x.id !== s.id)].slice(0, 12);
-  store.save();
+  const p = activeProfileData();
+  if (p) {
+    p.recent = [s, ...p.recent.filter((x) => x.id !== s.id)].slice(0, 12);
+    store.save();
+  }
 
   document.title = `${m.title} (${yearOf(m.release_date)}) · FlowingDaFilms`;
   $("#detailHero").style.backgroundImage = m.backdrop_path ? `url(${IMG}w1280${m.backdrop_path})` : "none";
@@ -614,6 +827,7 @@ async function renderMovie(id, token) {
       <strong>${escapeHTML(c.name)}</strong>
       <small>${escapeHTML(c.character || "")}</small>
     </div>`).join("");
+  refreshCarouselEdges($("#castList"));
 
   const similar = (m.recommendations?.results?.length ? m.recommendations.results : m.similar?.results || []).slice(0, 14);
   $("#similarRow").hidden = similar.length === 0;
@@ -646,14 +860,14 @@ function updateDetailButtons(id) {
 }
 
 function renderStars(id) {
-  const current = state.ratings[id] || 0;
+  const current = activeProfileData()?.ratings[id] || 0;
   $("#userStars").innerHTML = [1, 2, 3, 4, 5]
     .map((n) => `<button role="radio" aria-checked="${n === current}" aria-label="${n} star${n > 1 ? "s" : ""}"
       data-n="${n}" class="${n <= current ? "on" : ""}">★</button>`).join("");
 }
 
 function renderReviews(id) {
-  const mine = state.reviews[id] || [];
+  const mine = activeProfileData()?.reviews[id] || [];
   const theirs = currentMovie?.id === id ? currentMovie.reviews?.results || [] : [];
   $("#reviewCount").textContent = mine.length + theirs.length ? `(${mine.length + theirs.length})` : "";
 
@@ -719,11 +933,12 @@ function initDetail() {
   const stars = $("#userStars");
   stars.addEventListener("click", (e) => {
     const btn = e.target.closest("button");
-    if (!btn) return;
+    const p = activeProfileData();
+    if (!btn || !p) return;
     const n = Number(btn.dataset.n);
     const id = currentRoute.id;
-    if (state.ratings[id] === n) { delete state.ratings[id]; toast("Rating cleared"); }
-    else { state.ratings[id] = n; toast(`You rated this ${n}/5`); }
+    if (p.ratings[id] === n) { delete p.ratings[id]; toast("Rating cleared"); }
+    else { p.ratings[id] = n; toast(`You rated this ${n}/5`); }
     store.save();
     renderStars(id);
   });
@@ -738,9 +953,10 @@ function initDetail() {
     e.preventDefault();
     const name = $("#reviewName").value.trim();
     const text = $("#reviewText").value.trim();
-    if (!name || !text) return;
+    const p = activeProfileData();
+    if (!name || !text || !p) return;
     const id = currentRoute.id;
-    (state.reviews[id] ||= []).unshift({ name, text, stars: state.ratings[id] || 0, date: Date.now() });
+    (p.reviews[id] ||= []).unshift({ name, text, stars: p.ratings[id] || 0, date: Date.now() });
     store.save();
     $("#reviewText").value = "";
     renderReviews(id);
@@ -749,9 +965,10 @@ function initDetail() {
 
   $("#reviewList").addEventListener("click", (e) => {
     const id = currentRoute.id;
+    const p = activeProfileData();
     const del = e.target.closest(".review-del");
-    if (del) {
-      state.reviews[id].splice(Number(del.dataset.i), 1);
+    if (del && p) {
+      p.reviews[id].splice(Number(del.dataset.i), 1);
       store.save();
       renderReviews(id);
       toast("Review deleted");
@@ -759,8 +976,8 @@ function initDetail() {
     }
     const more = e.target.closest(".review-more");
     if (more) {
-      const p = more.previousElementSibling;
-      const open = p.classList.toggle("clamped");
+      const para = more.previousElementSibling;
+      const open = para.classList.toggle("clamped");
       more.textContent = open ? "Read more" : "Show less";
     }
   });
@@ -807,11 +1024,12 @@ $("#bioToggle").addEventListener("click", () => {
 let watchTab = "watchlist";
 
 function renderWatchlist() {
-  const movies = state[watchTab];
+  const movies = activeProfileData()?.[watchTab] || [];
   movies.forEach((m) => movieCache.set(m.id, m));
   renderList($("#watchlistGrid"), movies);
   $("#watchlistEmpty").hidden = movies.length > 0;
-  $("#watchlistSummary").textContent = `${state.watchlist.length} to watch · ${state.watched.length} watched`;
+  const p = activeProfileData();
+  $("#watchlistSummary").textContent = `${p?.watchlist.length || 0} to watch · ${p?.watched.length || 0} watched`;
   $$("#watchTabs .tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === watchTab));
 }
 
@@ -821,6 +1039,102 @@ $("#watchTabs").addEventListener("click", (e) => {
   watchTab = tab.dataset.tab;
   renderWatchlist();
 });
+
+/* =========================================================
+   Profiles ("Who's watching?")
+   ========================================================= */
+let draftAvatar = AVATARS[0];
+
+function pickNextAvatar() {
+  return AVATARS[state.profiles.length % AVATARS.length];
+}
+
+function renderProfilesView() {
+  $("#profileForm").hidden = true;
+  const tiles = state.profiles.map((p) => `
+    <button class="profile-tile" data-select="${p.id}" type="button">
+      <span class="profile-avatar" style="background:${p.color}">${p.emoji}${
+        state.profiles.length > 1 ? `<span class="profile-delete" data-delete="${p.id}" role="button" aria-label="Delete ${escapeHTML(p.name)}">✕</span>` : ""
+      }</span>
+      <span class="p-name">${escapeHTML(p.name)}</span>
+    </button>`).join("");
+  const addTile = state.profiles.length < 8 ? `
+    <button class="profile-tile profile-add" id="profileAddTile" type="button">
+      <span class="profile-avatar">+</span>
+      <span class="p-name">Add Profile</span>
+    </button>` : "";
+  $("#profileGrid").innerHTML = tiles + addTile;
+}
+
+function renderEmojiPicker(selected) {
+  $("#emojiPicker").innerHTML = AVATARS.map((a) => `
+    <button type="button" data-emoji="${a.emoji}" data-color="${a.color}"
+      class="${a.emoji === selected.emoji ? "selected" : ""}" style="background:${a.color}"
+      aria-label="Use ${a.emoji} avatar">${a.emoji}</button>`).join("");
+}
+
+function updateProfileBadge() {
+  const p = state.profiles.find((x) => x.id === state.activeProfileId);
+  const badge = $("#profileBadge");
+  if (p) { badge.textContent = p.emoji; badge.style.background = p.color; badge.style.color = "#fff"; }
+  else { badge.textContent = "🍿"; badge.style.background = ""; badge.style.color = ""; }
+}
+
+function initProfiles() {
+  $("#profileGrid").addEventListener("click", (e) => {
+    const del = e.target.closest("[data-delete]");
+    if (del) {
+      e.stopPropagation();
+      const id = del.dataset.delete;
+      const p = state.profiles.find((x) => x.id === id);
+      if (!confirm(`Delete profile "${p?.name}"? This removes its watchlist, ratings and reviews.`)) return;
+      state.profiles = state.profiles.filter((x) => x.id !== id);
+      delete state.data[id];
+      if (state.activeProfileId === id) state.activeProfileId = null;
+      store.save();
+      updateProfileBadge();
+      renderProfilesView();
+      return;
+    }
+    const sel = e.target.closest("[data-select]");
+    if (sel) {
+      state.activeProfileId = sel.dataset.select;
+      store.save();
+      updateProfileBadge();
+      location.hash = "#/";
+      return;
+    }
+    if (e.target.closest("#profileAddTile")) {
+      draftAvatar = pickNextAvatar();
+      renderEmojiPicker(draftAvatar);
+      $("#profileForm").hidden = false;
+      $("#profileName").value = "";
+      $("#profileName").focus();
+    }
+  });
+
+  $("#emojiPicker").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-emoji]");
+    if (!btn) return;
+    draftAvatar = { emoji: btn.dataset.emoji, color: btn.dataset.color };
+    $$("#emojiPicker button").forEach((b) => b.classList.toggle("selected", b === btn));
+  });
+
+  $("#profileCancel").addEventListener("click", () => { $("#profileForm").hidden = true; });
+
+  $("#profileForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const name = $("#profileName").value.trim();
+    if (!name) return;
+    const id = "p" + Date.now().toString(36);
+    state.profiles.push({ id, name, emoji: draftAvatar.emoji, color: draftAvatar.color });
+    state.data[id] = emptyProfileData();
+    state.activeProfileId = id;
+    store.save();
+    updateProfileBadge();
+    location.hash = "#/";
+  });
+}
 
 /* =========================================================
    Settings (API key)
@@ -898,6 +1212,7 @@ function parseRoute() {
   if (parts[0] === "browse") return { name: "browse", params };
   if (parts[0] === "watchlist") return { name: "watchlist" };
   if (parts[0] === "settings") return { name: "settings" };
+  if (parts[0] === "profiles") return { name: "profiles" };
   if ((parts[0] === "movie" || parts[0] === "person") && /^\d+$/.test(parts[1] || "")) return { name: parts[0], id: Number(parts[1]) };
   return { name: "notfound" };
 }
@@ -945,9 +1260,14 @@ async function router() {
       renderSettings();
       showView("settings");
       document.title = "Settings · FlowingDaFilms";
+    } else if (route.name === "profiles") {
+      renderProfilesView();
+      showView("profiles");
+      document.title = "Who's Watching · FlowingDaFilms";
+    } else if (!state.activeProfileId || !state.profiles.length) {
+      location.replace("#/profiles");
     } else if (!getKey()) {
       location.replace("#/settings");
-      return;
     } else if (route.name === "home") {
       showView("home");
       await renderHome(token);
@@ -1003,12 +1323,15 @@ $("#menuToggle").addEventListener("click", () => {
    ========================================================= */
 applyTheme(state.theme);
 $("#year").textContent = new Date().getFullYear();
+["castList", "rowSimilar", "rowTop10", "rowMyList", "rowBecause", "rowRecent"].forEach(wrapCarousel);
 initHomeRows();
 initHero();
 initBrowse();
 initSearch();
 initDetail();
+initProfiles();
 initSettings();
+updateProfileBadge();
 refreshSavedIndicators();
 window.addEventListener("hashchange", router);
 router();
